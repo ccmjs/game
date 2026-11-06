@@ -82,12 +82,14 @@ export const component = {
 
     /** Start/restart without carrying mutable state back into the game definition. */
     this.start = async (reuseAudio = false) => {
+      const fullscreenShell = reuseAudio === true && this.gui.fullscreen ? elements.shell : null;
       // A UI restart retains the gesture-unlocked context while rewinding its music.
       if (reuseAudio === true && audio) {
-        stopRuntime(); audio.setPaused(true); audio.reset();
+        stopRuntime(!!fullscreenShell); audio.setPaused(true); audio.reset();
       } else this.stop();
       const serial = ++loadSerial;
-      await this.emit("before-start");
+      try { await this.emit("before-start"); }
+      catch (error) { if (serial === loadSerial) this.stop(); throw error; }
       if (serial !== loadSerial) return;
       source = this.src || {};
       const definition = source.game || this.game;
@@ -105,7 +107,7 @@ export const component = {
       this.gui.zoom = Math.max(1, Math.min(2, definition.view?.zoom || 1));
       ending = false; finishPending = false; accumulator = 0; lastTime = null; lastHud = -1; statusText = "";
       controller = new AbortController();
-      buildInterface(definition);
+      buildInterface(definition, fullscreenShell);
       try {
         if (!audio) {
           const current = new this.audioModule.GameAudio(definition.audio, {
@@ -129,6 +131,8 @@ export const component = {
         if (serial !== loadSerial) return;
         paintToolIcons();
         bindEvents();
+        // Escape/browser UI can leave native fullscreen while assets reload.
+        fullscreenMode(this.gui.fullscreenMode === "native" && !ownsNativeFullscreen() ? null : this.gui.fullscreenMode);
         active = true;
         syncPlayback(true);
         paint(true);
@@ -166,8 +170,8 @@ export const component = {
       // request a fresh one; never depend on a pre-suspension rAF surviving.
       syncPlayback(true);
     };
-    const stopRuntime = () => {
-      leaveFullscreen();
+    const stopRuntime = (preserveFullscreen = false) => {
+      if (!preserveFullscreen) leaveFullscreen();
       sizeObserver?.disconnect(); sizeObserver = null; hoverPoint = null; fitKey = "";
       active = false; loopReady = false; loadSerial++; cancelFrame();
       controller?.abort(); observer?.disconnect(); painter?.destroy();
@@ -191,8 +195,22 @@ export const component = {
     };
     this.command = (name, payload = {}) => {
       if (!runtime) return;
+      if (name === "tool" && !toolEnabled(runtime.definition.tools?.find(tool => tool.id === payload.tool))) {
+        paint(true); return;
+      }
       runtime.command(name, payload); this.state = runtime.state; paint(true);
     };
+    const toolState = tool => {
+      if (!tool) return { enabled: false };
+      if (tool.enabled !== undefined && !runtime.evaluate(tool.enabled))
+        return { enabled: false, reason: tool.disabledHint };
+      for (const plugin of runtime.plugins || []) {
+        const state = plugin.toolState?.(runtime, tool.id);
+        if (state?.enabled === false) return state;
+      }
+      return { enabled: true };
+    };
+    const toolEnabled = tool => toolState(tool).enabled;
     this.loadState = snapshot => {
       if (!runtime) throw new Error("Das Spiel wurde noch nicht gestartet.");
       this.pause(); runtime.restore(snapshot); this.state = runtime.state;
@@ -239,9 +257,9 @@ export const component = {
       return result;
     }
 
-    const buildInterface = definition => {
+    const buildInterface = (definition, retainedShell = null) => {
       const labels = definition.labels || {};
-      const shell = node("section", "game-shell");
+      const shell = retainedShell || node("section", "game-shell");
       shell.setAttribute("aria-label", definition.title || "2D-Spiel");
       const header = node("header", "game-header");
       const brand = node("div", "game-brand");
@@ -345,8 +363,9 @@ export const component = {
       inspectTools.append(button("Ein Schritt", "step"), node("span", "game-hint", "Ein Schritt pausiert die Simulation. Zustände helfen beim Erstellen eigener Spiele."));
       const inspectText = node("pre"); inspector.append(inspectTools, inspectText);
       const footer = node("footer", "game-footer", labels.footer || "Entdecken. Ausprobieren. Noch einmal spielen.");
-      shell.append(header, audioControls, hud, viewControls, stageFrame, toolbar, status, help, inspector, footer);
-      this.element.replaceChildren(shell);
+      // Removing the fullscreen element, even briefly, makes the browser exit.
+      shell.replaceChildren(header, audioControls, hud, viewControls, stageFrame, toolbar, status, help, inspector, footer);
+      if (!retainedShell) this.element.replaceChildren(shell);
       elements = { shell, canvas, stage, stageWrap, stageFrame, toolbar, toolPicker, hud, stats, roomName, overlay, resultTitle, resultText, next, status, inspector, inspectText, zoomLabel, zoomOut, zoomIn, toolIcons, audioSliders, audioStatus };
       updateZoom();
     };
@@ -481,6 +500,7 @@ export const component = {
         if (tool) {
           try {
             const definition = runtime.definition.tools.find(item => item.id === tool.dataset.tool);
+            if (!toolEnabled(definition)) return;
             const previousStatus = statusText;
             runtime.command("tool", { tool: tool.dataset.tool });
             this.state = runtime.state; this.gui.selected = tool.dataset.tool;
@@ -557,7 +577,9 @@ export const component = {
         }
         const tool = runtime.definition.tools?.find(item => String(item.key).toLowerCase() === event.key.toLowerCase());
         if (tool) {
-          event.preventDefault(); const previousStatus = statusText;
+          event.preventDefault();
+          if (!toolEnabled(tool)) return;
+          const previousStatus = statusText;
           runtime.command("tool", { tool: tool.id });
           this.gui.selected = tool.id;
           if (statusText === previousStatus) setStatus(tool.hint || tool.label);
@@ -661,7 +683,20 @@ export const component = {
       }
       const selected = runtime.state.globals.tool ?? this.gui.selected;
       elements.toolPicker.value = selected || "";
-      for (const item of elements.shell.querySelectorAll("[data-tool]")) item.setAttribute("aria-pressed", String(item.dataset.tool === selected));
+      const availabilityByTool = new Map((runtime.definition.tools || []).map(tool => [tool.id, toolState(tool)]));
+      for (const item of elements.shell.querySelectorAll("[data-tool]")) {
+        const tool = runtime.definition.tools.find(tool => tool.id === item.dataset.tool);
+        const availability = availabilityByTool.get(tool.id);
+        item.disabled = !availability.enabled;
+        item.title = item.disabled ? availability.reason || tool.disabledHint || tool.hint || tool.label : tool.hint || tool.label;
+        item.setAttribute("aria-pressed", String(item.dataset.tool === selected));
+      }
+      for (const option of elements.toolPicker.children) {
+        const tool = runtime.definition.tools?.find(tool => tool.id === option.value);
+        const availability = availabilityByTool.get(tool?.id) || { enabled: false };
+        option.disabled = !availability.enabled;
+        option.title = option.disabled ? availability.reason || tool?.disabledHint || "" : "";
+      }
       if (elements.inspector.open) elements.inspectText.textContent = JSON.stringify({
         room: runtime.state.roomId, time: Math.round(runtime.state.time * 10) / 10, globals: runtime.state.globals,
         instances: runtime.state.instances.map(({ id, object, x, y, state, mode, tool, kit }) => ({ id, object, x: Math.round(x), y: Math.round(y), state, mode, tool, kit })),

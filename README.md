@@ -77,7 +77,7 @@ Edit the source under `libs/game-engine/src/`, rebuild the local artifacts, and 
 
 ```sh
 npm --prefix libs/game-engine run build
-npm --prefix tests test
+npm --prefix test test
 ```
 
 To run only the library's tests, use `npm --prefix libs/game-engine test`. Builds use Node.js built-ins and do not install dependencies or download files. The component release workflow packages the selected source and artifacts; it does not rebuild the engine automatically. When changing the package version, update the configured module URLs and direct imports to the new artifact names. Library version numbers are separate from game IDs, `game.version` and the snapshot schema.
@@ -118,7 +118,7 @@ The full format and API are documented in [docs/game-format.md](docs/game-format
 
 ## View and pointer feedback
 
-**Vollbild** fits the entire room into the available screen area while preserving its aspect ratio. The fullscreen view has no playfield scrollbars; normal zoom is retained and restored on exit. The component uses the native Fullscreen API when available and falls back to a viewport-filling layout if the embedding browser rejects it. Escape or **Vollbild beenden** exits. Narrow or short displays use a compact tool selector so every tool remains available.
+**Vollbild** fits the entire room into the available screen area while preserving its aspect ratio. The fullscreen view has no playfield scrollbars; normal zoom is retained and restored on exit. The component uses the native Fullscreen API when available and falls back to a viewport-filling layout if the embedding browser rejects it. Escape or **Vollbild beenden** exits. **Neustart** and **Noch einmal spielen** retain the active fullscreen mode while resetting the game. Tool buttons, sprites, labels and keyboard hints scale with viewport width and height on large displays. Narrow or short displays use a compact tool selector so every tool remains available.
 
 A game plugin can export `cursor(runtime, { x, y })`, returning a CSS cursor string for the current logical room coordinates or `undefined` to defer. The component refreshes the result after state/tool changes even when the pointer is stationary. The hook must not mutate the game. Pause, completed games and pointer exit use the normal cursor; game-specific action eligibility belongs in the plugin. See [the hook contract](docs/game-format.md#kontextabhängiger-mauszeiger).
 
@@ -148,21 +148,21 @@ await app.destroy();           // Await audio cleanup and notify extensions.
 
 ## Tests
 
-Node.js 22 or newer is needed for tests and local engine builds. The test-only npm configuration lives in `tests/package.json`; no package file is needed at the repository root. Run the component, showcase and engine tests together from the repository root:
+Node.js 22 or newer is needed for tests and local engine builds. The test-only npm configuration lives in `test/package.json`; no package file is needed at the repository root. Run the component, showcase and engine tests together from the repository root:
 
 ```sh
-npm --prefix tests test
+npm --prefix test test
 # Equivalent explicit command:
-node --test tests/*.test.mjs libs/game-engine/tests/*.test.mjs
+node --test test/*.test.mjs libs/game-engine/tests/*.test.mjs
 ```
 
 Component tests cover dependency injection, instance isolation, lifecycle races, persistence, controls and cleanup. The local library package owns the engine, Canvas renderer and audio unit tests under `libs/game-engine/tests/`; the combined test command includes them. Showcase tests exercise its game flow and saved-state compatibility. Additional games own their test suites alongside their implementation.
 
-[tests/browser.html](tests/browser.html) exercises the showcase through real CCM instances, Canvas rendering and browser persistence.
+[test/browser.html](test/browser.html) exercises the showcase through real CCM instances, Canvas rendering and browser persistence.
 
-Open [tests/lifecycle-browser.html](tests/lifecycle-browser.html) through the static server to check tab-return recovery, manual pause, discarded animation callbacks, page-cache return and temporary removal from the DOM/CCM Shadow DOM. Focus and visibility events are simulated explicitly; Canvas and DOM operations use the real browser.
+Open [test/lifecycle-browser.html](test/lifecycle-browser.html) through the static server to check tab-return recovery, manual pause, discarded animation callbacks, page-cache return and temporary removal from the DOM/CCM Shadow DOM. Focus and visibility events are simulated explicitly; Canvas and DOM operations use the real browser.
 
-[tests/fullscreen-browser.html](tests/fullscreen-browser.html) checks fitted fullscreen geometry, scroll-free layout, aspect ratio, pointer coordinates and game-owned cursor feedback. Its native-fullscreen button requires a real browser click.
+[test/fullscreen-browser.html](test/fullscreen-browser.html) checks fitted fullscreen geometry, scroll-free layout, aspect ratio, pointer coordinates and game-owned cursor feedback. Its native-fullscreen button requires a real browser click.
 
 The showcase's [documentation](resources/demo/README.md) describes its controls, game rules and configuration.
 
@@ -183,12 +183,12 @@ This prepares files without publishing a tag. The workflow's dry-run mode can al
 | File | Responsibility |
 | --- | --- |
 | `ccm.game.mjs` | CCM lifecycle, HTML interface, fixed timestep, input and persistence. |
-| `libs/game-engine/` | Independent local module package: source, tests, build script, example and license. |
+| `libs/game-engine/` | Independent local module package: source, tests, build script, example and licensing status. |
 | `libs/game-engine/dist/` | Versioned engine, Canvas/audio modules and artifact checksums used by the component. |
 | `resources/styles.css` | Isolated responsive component styles. |
 | `resources/demo/` | Showcase definition, original SVG sprites, behavior and documentation. |
 | `resources/configs.mjs` | Public showcase configuration and dependency bindings. |
-| `tests/` | Test-only npm configuration, component integration, dependency injection and lifecycle tests. |
+| `test/` | Test-only npm configuration, component integration, dependency injection and lifecycle tests. |
 | `docs/game-format.md` | Game-definition reference and CCM integration, linked to the independent library API. |
 | `index.html` | Interactive showcase page. |
 
@@ -198,4 +198,8 @@ This prepares files without publishing a tag. The workflow's dry-run mode can al
 - [GameMaker: objects and instances](https://manual.gamemaker.io/monthly/en/Quick_Start_Guide/Objects_And_Instances.htm)
 - [GameMaker: object events](https://manual.gamemaker.io/monthly/en/The_Asset_Editors/Object_Properties/Object_Events.htm)
 
-MIT License. Bundled dependencies retain their respective license files. Showcase sprites are original SVG artwork defined with the example.
+The Game component is MIT-licensed; see [LICENSE](LICENSE). This license does not apply to the bundled Game Engine under `libs/game-engine/`.
+
+For the Game Engine: All rights reserved. No license is currently granted. Licensing has not yet been decided. Its package records this as `UNLICENSED`; see [the engine's licensing status](libs/game-engine/README.md#license).
+
+The bundled ccmjs framework retains its [own license](libs/framework/LICENSE). Showcase sprites are original SVG artwork defined with the example.

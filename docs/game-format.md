@@ -106,7 +106,7 @@ await app.setFullscreen(true, { native: false }); // Ausdrücklich nur das Fenst
 await app.setFullscreen(false);                   // Vorherige Ansicht wiederherstellen.
 ```
 
-`app.gui.fullscreen` zeigt den aktiven Zustand, `app.gui.fullscreenMode` ist `"native"`, `"viewport"` oder `null`. Diese Werte gehören zur Oberfläche, nicht zum gespeicherten Spielstand. Ein nativer Eintritt muss aus einer Benutzeraktion kommen; Browserbeschränkungen führen zum Fenster-Fallback. `stop()` und `destroy()` räumen die Ansicht und ihre Größenbeobachter auf.
+`app.gui.fullscreen` zeigt den aktiven Zustand, `app.gui.fullscreenMode` ist `"native"`, `"viewport"` oder `null`. Diese Werte gehören zur Oberfläche, nicht zum gespeicherten Spielstand. Ein nativer Eintritt muss aus einer Benutzeraktion kommen; Browserbeschränkungen führen zum Fenster-Fallback. **Neustart** und **Noch einmal spielen** behalten den aktiven Vollbildmodus bei. Dabei bleibt das äußere Vollbildelement im Dokument; nur sein Spielinhalt wird erneuert, sodass kein erneuter Browser-Vollbildaufruf nötig ist. `stop()` und `destroy()` räumen die Ansicht und ihre Größenbeobachter auf.
 
 
 ### Sprites
@@ -295,6 +295,10 @@ help: ["Wähle ein Werkzeug und anschließend eine Figur."]
 
 Ein Werkzeug sendet `command:tool` mit `{ tool: "pulse" }`. Die Spieldefinition legt selbst fest, was dieses Werkzeug bewirkt. `globals.tool` hält das aktuell gewählte Werkzeug für die Oberfläche fest.
 
+Mit `enabled` kann ein Werkzeug einen booleschen Wert oder einen Datenausdruck verwenden, etwa `enabled: { op: "gt", args: [{ ref: "globals.energy" }, 0] }`. Ohne diese Angabe ist es verfügbar. Die Oberfläche wertet die Bedingung beim Aktualisieren und vor der Auswahl aus: Gesperrte Schaltflächen und Einträge der kompakten Auswahl sind deaktiviert; auch Tastenkürzel und `app.command("tool", ...)` lösen sie nicht aus. `disabledHint` kann den Grund als Tooltip erklären. Die Spielregeln sollten dieselbe Bedingung prüfen, wenn sie auch direkt mit der Engine ohne Oberfläche verwendet werden.
+
+Für zustandsabhängige Spielregeln kann ein Plugin zusätzlich `toolState(runtime, toolId)` exportieren. Der optionale, rein lesende Hook liefert `{ enabled: false, reason: "…" }`, um ein Werkzeug mit einer aktuellen Erklärung zu sperren; `{ enabled: true }` oder `undefined` lässt es zu. Jede Sperre gilt zusätzlich zu `enabled` und den anderen Plugins. Die Oberfläche prüft den Hook auch unmittelbar vor jeder Auswahl und zeigt `reason` als Tooltip an Schaltfläche und kompaktem Auswahleintrag. Die Spielregeln müssen konkrete Ziele und Materialreservierungen bei der Ausführung erneut prüfen. Ein freigegebenes Werkzeug bedeutet nicht, dass jeder Bauplatz oder jede Figur ein zulässiges Ziel ist.
+
 Mit `sprite` kann ein Werkzeug auf eine Sprite-ID der Spieldefinition verweisen. Die Bedienleiste zeichnet dessen erstes, bereits geladenes Bild in eine transparente Canvas-Fläche mit unverzerrtem Seitenverhältnis. Dabei funktionieren normale Bilddateien, SVGs und Atlas-Ausschnitte gleich; eine zusätzliche Bildanfrage ist nicht nötig. Fehlt ein passendes Sprite, wird `icon` als Textsymbol verwendet. Beschriftung, Tastenkürzel und Bedienung bleiben unverändert; das rein dekorative Bild ist für Screenreader ausgeblendet.
 
 ## Wiederverwendbare JavaScript-Aktionsmodule
@@ -392,7 +396,7 @@ Für Werkzeugbilder ruft die Komponente nach `renderer.load()` die öffentliche 
 }
 ```
 
-Änderungen am Engine-Quellcode werden im Repository-Hauptverzeichnis mit `npm --prefix libs/game-engine run build` in die lokalen `dist/`-Artefakte übernommen. `npm --prefix tests test` prüft Komponente, Beispielspiel und das Engine-Paket zusammen.
+Änderungen am Engine-Quellcode werden im Repository-Hauptverzeichnis mit `npm --prefix libs/game-engine run build` in die lokalen `dist/`-Artefakte übernommen. `npm --prefix test test` prüft Komponente, Beispielspiel und das Engine-Paket zusammen.
 
 Die mitgelieferten Bibliotheksmodule sind auf Version 1.0.0 festgelegt. Eine Konfiguration auf einer Seite im Repository-Hauptverzeichnis kann die Abhängigkeiten ausdrücklich angeben:
 
