@@ -108,6 +108,10 @@ await app.setFullscreen(false);                   // Vorherige Ansicht wiederher
 
 `app.gui.fullscreen` zeigt den aktiven Zustand, `app.gui.fullscreenMode` ist `"native"`, `"viewport"` oder `null`. Diese Werte gehören zur Oberfläche, nicht zum gespeicherten Spielstand. Ein nativer Eintritt muss aus einer Benutzeraktion kommen; Browserbeschränkungen führen zum Fenster-Fallback. **Neustart** und **Noch einmal spielen** behalten den aktiven Vollbildmodus bei. Dabei bleibt das äußere Vollbildelement im Dokument; nur sein Spielinhalt wird erneuert, sodass kein erneuter Browser-Vollbildaufruf nötig ist. `stop()` und `destroy()` räumen die Ansicht und ihre Größenbeobachter auf.
 
+Ein vorgeschalteter Startbildschirm kann bereits einen gemeinsamen äußeren Container per `requestFullscreen()` ins Vollbild setzen. Bleibt dieser Container beim Übergang zum Spiel im Dokument, übernimmt die Komponente dessen Vollbildzustand beim Start automatisch, auch über CCM-Shadow-DOM-Grenzen hinweg. Die Einpassung, die skalierende Aktionsleiste und **Vollbild beenden** funktionieren dann wie beim Eintritt direkt im Spiel.
+
+Ein optionaler Callback `onHome({ app })` ergänzt den Button **Startbildschirm**. Vor seinem Aufruf pausiert die Komponente Simulation und Spielaudio. Der Host zeigt anschließend seinen Startbildschirm und kann den Durchgang mit `app.stop()` beenden. Wenn der gemeinsame äußere Container im Vollbild bleiben soll, erhält `app.stop({ preserveFullscreen: true })` dessen native Vollbildebene; Renderloop, Eingabebindungen und Audioplayer werden trotzdem beendet. Ein späteres `start(true)` übernimmt den weiterhin aktiven äußeren Vollbildrahmen.
+
 
 ### Sprites
 
@@ -295,6 +299,8 @@ help: ["Wähle ein Werkzeug und anschließend eine Figur."]
 
 Ein Werkzeug sendet `command:tool` mit `{ tool: "pulse" }`. Die Spieldefinition legt selbst fest, was dieses Werkzeug bewirkt. `globals.tool` hält das aktuell gewählte Werkzeug für die Oberfläche fest.
 
+Mit dem optionalen String `group`, etwa `group: "Werkzeuge"`, erscheinen zusammengehörige Aktionen unter derselben dezenten Überschrift. Die Reihenfolge der Gruppen folgt ihrem ersten Auftreten, innerhalb einer Gruppe gilt die Reihenfolge in `tools`. Die kompakte Auswahl verwendet dieselben Namen als `optgroup`-Beschriftungen. Gruppen können bei wenig Platz umbrechen; im kompakten Vollbild sind nur die gegliederten Auswahlmöglichkeiten sichtbar. Fehlen sämtliche Gruppenangaben, bleibt die bisherige flache Leiste erhalten. Bei gemischten Angaben werden Aktionen ohne nichtleere Gruppe unter **Weitere Aktionen** gesammelt. Gruppierung verändert weder Werkzeug-IDs noch Tastenkürzel, Auswahl oder Sperrregeln.
+
 Mit `enabled` kann ein Werkzeug einen booleschen Wert oder einen Datenausdruck verwenden, etwa `enabled: { op: "gt", args: [{ ref: "globals.energy" }, 0] }`. Ohne diese Angabe ist es verfügbar. Die Oberfläche wertet die Bedingung beim Aktualisieren und vor der Auswahl aus: Gesperrte Schaltflächen und Einträge der kompakten Auswahl sind deaktiviert; auch Tastenkürzel und `app.command("tool", ...)` lösen sie nicht aus. `disabledHint` kann den Grund als Tooltip erklären. Die Spielregeln sollten dieselbe Bedingung prüfen, wenn sie auch direkt mit der Engine ohne Oberfläche verwendet werden.
 
 Für zustandsabhängige Spielregeln kann ein Plugin zusätzlich `toolState(runtime, toolId)` exportieren. Der optionale, rein lesende Hook liefert `{ enabled: false, reason: "…" }`, um ein Werkzeug mit einer aktuellen Erklärung zu sperren; `{ enabled: true }` oder `undefined` lässt es zu. Jede Sperre gilt zusätzlich zu `enabled` und den anderen Plugins. Die Oberfläche prüft den Hook auch unmittelbar vor jeder Auswahl und zeigt `reason` als Tooltip an Schaltfläche und kompaktem Auswahleintrag. Die Spielregeln müssen konkrete Ziele und Materialreservierungen bei der Ausführung erneut prüfen. Ein freigegebenes Werkzeug bedeutet nicht, dass jeder Bauplatz oder jede Figur ein zulässiges Ziel ist.
@@ -378,7 +384,7 @@ Variantenwahl und Audioposition verändern weder Spielzufall noch Speicherständ
 
 ## ccm-Konfiguration, Einbettung und Speicherung
 
-Die äußere ccm-Konfiguration enthält `game`, `plugins`, optional `storage`, `extensions`, `autoStart` und `sound`. Engine, Renderer, Audiomodul und CSS sind als ccm-Abhängigkeiten in der Komponente vorkonfiguriert. `engine` exportiert `GameRuntime`, `renderer` exportiert `CanvasRenderer` und `audioModule` exportiert `GameAudio`. Diese Module sind austauschbar; `app.audio` bezeichnet weiterhin die laufende Audioinstanz, nicht das geladene Modul. `autoStart: false` beginnt mit angehaltener Simulation. `sound` ist standardmäßig `false`. Audio startet dennoch erst nach einem Klick oder Tastendruck im Spiel. Musik und Effekte haben eigene Lautstärkeregler. Diese Einstellungen bleiben bei einem Neustart über die Oberfläche erhalten, gehören aber nicht zum gespeicherten Spielstand.
+Die äußere ccm-Konfiguration enthält `game`, `plugins`, optional `storage`, `extensions`, `autoStart` und `sound`. Engine, Renderer, Audiomodul und CSS sind als ccm-Abhängigkeiten in der Komponente vorkonfiguriert. `engine` exportiert `GameRuntime`, `renderer` exportiert `CanvasRenderer` und `audioModule` exportiert `GameAudio`. Diese Module sind austauschbar; `app.audio` bezeichnet weiterhin die laufende Audioinstanz, nicht das geladene Modul. `autoStart: false` beginnt mit angehaltener Simulation. `sound` ist standardmäßig `false`. Ein Klick oder Tastendruck gibt Audio frei. Bei einem vorgeschalteten Intro kann dessen Benutzeraktion bereits `app.prepareAudio()` aufrufen. Nach dem Intro und dem Abschluss dieses Promise übernimmt `app.start(true)` den vorbereiteten Audioplayer. Musik und Effekte haben eigene Lautstärkeregler. Diese Einstellungen bleiben bei einem Neustart über die Oberfläche erhalten, gehören aber nicht zum gespeicherten Spielstand.
 
 Für Werkzeugbilder ruft die Komponente nach `renderer.load()` die öffentliche Methode `renderer.drawSpritePreview(canvas, spriteId)` auf. Der mitgelieferte Renderer zeichnet das erste geladene Bild proportional und transparent in eine Vorschau mit 40 × 40 logischen Pixeln und zwei Pixeln Innenabstand; die Pixeldichte wird bis Faktor 2 berücksichtigt. Er verwendet vorhandene Bilder, verändert weder Spielfeld noch Simulation und liefert `true` bei erfolgreicher Darstellung, andernfalls `false`. Die Komponente benötigt dadurch keine Kenntnis des Bildcaches oder der Atlas-Struktur. Bei eigenen Renderern ist diese Methode optional; ohne sie bleiben Beschriftungen und Werkzeugfunktionen verfügbar.
 
@@ -420,7 +426,8 @@ Die ccm-Instanz stellt folgende Schnittstellen bereit:
 
 | Schnittstelle | Wirkung |
 | --- | --- |
-| `start()` | Spiel neu aufbauen; vorherigen Renderloop und Ereignisbindungen beenden. |
+| `start()` | Spiel neu aufbauen; vorherigen Renderloop und Ereignisbindungen beenden. `start(true)` übernimmt einen vorbereiteten Audioplayer. |
+| `prepareAudio()` | Direkt im Klick auf einen vorgeschalteten Start- oder Introbutton aufrufen. Gibt Audio frei und lädt die Audiodateien bei pausierter Wiedergabe. Nach Abschluss des zurückgegebenen Promise startet `start(true)` mit demselben Audioplayer. |
 | `state` | Live-Referenz auf den aktuellen logischen Spielstand. |
 | `getValue()` | Unabhängigen Snapshot des Spielstands zurückgeben. |
 | `pause()`, `resume()` | Simulation anhalten bzw. fortsetzen. |

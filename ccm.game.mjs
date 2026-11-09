@@ -80,12 +80,41 @@ export const component = {
     this.init = async () => this.emit("init");
     this.ready = async () => this.emit("ready");
 
+    const configureAudio = definition => {
+      audioSettings ||= {
+        enabled: !!(this.src?.sound ?? this.sound),
+        music: definition.audio?.musicVolume ?? .45,
+        effects: definition.audio?.effectsVolume ?? .70,
+      };
+      this.gui.sound = audioSettings.enabled;
+    };
+    const ensureAudio = definition => {
+      if (!audio) {
+        const current = new this.audioModule.GameAudio(definition.audio, {
+          onStatus: status => { if (audio === current) updateAudio(status); },
+        });
+        audio = current;
+        audio.setPaused(true);
+      }
+      this.audio = audio;
+      audio.setVolumes(audioSettings);
+      audio.setEnabled(this.gui.sound);
+      return audio;
+    };
+
+    /** Call within an intro/start gesture, await decoding, then use start(true). */
+    this.prepareAudio = () => {
+      const definition = this.src?.game || this.game;
+      configureAudio(definition);
+      return ensureAudio(definition).unlock();
+    };
+
     /** Start/restart without carrying mutable state back into the game definition. */
     this.start = async (reuseAudio = false) => {
       const fullscreenShell = reuseAudio === true && this.gui.fullscreen ? elements.shell : null;
       // A UI restart retains the gesture-unlocked context while rewinding its music.
-      if (reuseAudio === true && audio) {
-        stopRuntime(!!fullscreenShell); audio.setPaused(true); audio.reset();
+      if (reuseAudio === true) {
+        stopRuntime(!!fullscreenShell || ownsNativeFullscreen()); audio?.setPaused(true); audio?.reset();
       } else this.stop();
       const serial = ++loadSerial;
       try { await this.emit("before-start"); }
@@ -97,27 +126,14 @@ export const component = {
       this.gui.paused = manualPaused;
       blurred = document.hasFocus?.() === false;
       pageHidden = pageFrozen = false;
-      audioSettings ||= {
-        enabled: !!(source.sound ?? this.sound),
-        music: definition.audio?.musicVolume ?? .45,
-        effects: definition.audio?.effectsVolume ?? .70,
-      };
-      this.gui.sound = audioSettings.enabled;
+      configureAudio(definition);
       this.gui.selected = null;
       this.gui.zoom = Math.max(1, Math.min(2, definition.view?.zoom || 1));
       ending = false; finishPending = false; accumulator = 0; lastTime = null; lastHud = -1; statusText = "";
       controller = new AbortController();
       buildInterface(definition, fullscreenShell);
       try {
-        if (!audio) {
-          const current = new this.audioModule.GameAudio(definition.audio, {
-            onStatus: status => { if (audio === current) updateAudio(status); },
-          });
-          audio = current;
-        }
-        this.audio = audio;
-        audio.setVolumes(audioSettings);
-        audio.setEnabled(this.gui.sound);
+        ensureAudio(definition);
         audio.setPaused(true);
         runtime = new this.engine.GameRuntime(definition, {
           plugins: source.plugins || this.plugins || [],
@@ -131,8 +147,9 @@ export const component = {
         if (serial !== loadSerial) return;
         paintToolIcons();
         bindEvents();
-        // Escape/browser UI can leave native fullscreen while assets reload.
-        fullscreenMode(this.gui.fullscreenMode === "native" && !ownsNativeFullscreen() ? null : this.gui.fullscreenMode);
+        // An intro can already have put a shared ancestor into native fullscreen.
+        // Also respect Escape while assets were loading or a restart was rebuilding.
+        fullscreenMode(ownsNativeFullscreen() ? "native" : this.gui.fullscreenMode === "viewport" ? "viewport" : null);
         active = true;
         syncPlayback(true);
         paint(true);
@@ -177,8 +194,9 @@ export const component = {
       controller?.abort(); observer?.disconnect(); painter?.destroy();
       releaseKeys(); lastTime = null;
     };
-    this.stop = () => {
-      stopRuntime();
+    this.stop = ({ preserveFullscreen = false } = {}) => {
+      stopRuntime(preserveFullscreen);
+      if (preserveFullscreen) fullscreenMode(null);
       const previousAudio = audio;
       audio = null; this.audio = null;
       void previousAudio?.destroy();
@@ -269,6 +287,8 @@ export const component = {
       actions.append(button("Pause", "pause", "Leertaste"), button("Neustart", "restart"),
         button("Ton aus", "sound"), button("Speichern", "save"), button("Laden", "load"),
         button("Vollbild", "fullscreen", "Gesamtes Spielfeld einpassen; Escape beendet Vollbild"));
+      if (typeof (source.onHome ?? this.onHome) === "function")
+        actions.append(button("Startbildschirm", "home", "Durchgang beenden und zum Startbildschirm zurückkehren"));
       if (!(source.storage ?? this.storage)?.store) for (const item of actions.querySelectorAll('[data-action="save"], [data-action="load"]')) item.hidden = true;
       header.append(brand, actions);
       const audioControls = node("div", "game-audio-controls");
@@ -331,14 +351,34 @@ export const component = {
         if (typeof frame.background === "string") stageFrame.style.backgroundColor = frame.background;
         stageFrame.append(stageWrap);
       }
-      const toolbar = node("div", "game-tools"); toolbar.setAttribute("role", "toolbar"); toolbar.setAttribute("aria-label", "Werkzeuge und Aktionen");
+      const tools = definition.tools || [];
+      const groupName = tool => typeof tool.group === "string" ? tool.group.trim() : "";
+      const grouped = tools.some(tool => groupName(tool));
+      const toolbar = node("div", `game-tools${grouped ? " game-tools-grouped" : ""}`);
+      toolbar.setAttribute("role", "toolbar"); toolbar.setAttribute("aria-label", "Werkzeuge und Aktionen");
       const toolPicker = node("select", "game-tool-picker");
       toolPicker.setAttribute("aria-label", "Werkzeug auswählen");
       const placeholder = node("option", "", "Werkzeug wählen …"); placeholder.value = "";
       toolPicker.append(placeholder);
-      const toolIcons = [];
-      for (const tool of definition.tools || []) {
-        const option = node("option", "", tool.label); option.value = tool.id; toolPicker.append(option);
+      const toolIcons = [], toolOptions = [placeholder], toolGroups = new Map();
+      for (const tool of tools) {
+        let buttons = toolbar, options = toolPicker;
+        if (grouped) {
+          const label = groupName(tool) || "Weitere Aktionen";
+          let group = toolGroups.get(label);
+          if (!group) {
+            const element = node("div", "game-tool-group");
+            element.setAttribute("role", "group"); element.setAttribute("aria-label", label);
+            const items = node("div", "game-tool-group-items");
+            element.append(node("h2", "game-tool-group-label", label), items);
+            const choices = node("optgroup"); choices.label = label;
+            toolbar.append(element); toolPicker.append(choices);
+            group = { element, items, choices }; toolGroups.set(label, group);
+          }
+          buttons = group.items; options = group.choices;
+        }
+        const option = node("option", "", tool.label); option.value = tool.id;
+        options.append(option); toolOptions.push(option);
         const item = node("button", "game-tool"); item.type = "button"; item.dataset.tool = tool.id;
         item.setAttribute("aria-pressed", "false"); item.title = tool.hint || tool.label;
         const icon = tool.sprite && definition.sprites?.[tool.sprite]
@@ -348,9 +388,11 @@ export const component = {
         if (icon.tagName === "CANVAS") toolIcons.push({ canvas: icon, sprite: tool.sprite });
         item.append(icon, node("span", "game-tool-label", tool.label));
         if (tool.key) item.append(node("kbd", "game-key", tool.key));
-        toolbar.append(item);
+        buttons.append(item);
       }
-      if ((definition.tools || []).length) toolbar.append(toolPicker);
+      for (const group of toolGroups.values())
+        group.element.style.setProperty("--game-tool-count", group.items.children.length);
+      if (tools.length) toolbar.append(toolPicker);
       const status = node("p", "game-status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
       const help = node("details", "game-help");
       help.append(node("summary", "", "So spielst du"));
@@ -366,7 +408,7 @@ export const component = {
       // Removing the fullscreen element, even briefly, makes the browser exit.
       shell.replaceChildren(header, audioControls, hud, viewControls, stageFrame, toolbar, status, help, inspector, footer);
       if (!retainedShell) this.element.replaceChildren(shell);
-      elements = { shell, canvas, stage, stageWrap, stageFrame, toolbar, toolPicker, hud, stats, roomName, overlay, resultTitle, resultText, next, status, inspector, inspectText, zoomLabel, zoomOut, zoomIn, toolIcons, audioSliders, audioStatus };
+      elements = { shell, canvas, stage, stageWrap, stageFrame, toolbar, toolPicker, toolOptions, hud, stats, roomName, overlay, resultTitle, resultText, next, status, inspector, inspectText, zoomLabel, zoomOut, zoomIn, toolIcons, audioSliders, audioStatus };
       updateZoom();
     };
 
@@ -397,8 +439,15 @@ export const component = {
       }
     };
 
-    const ownsNativeFullscreen = () => !!elements.shell && (
-      elements.shell.getRootNode?.().fullscreenElement === elements.shell || document.fullscreenElement === elements.shell);
+    const ownsNativeFullscreen = () => {
+      const target = elements.shell?.getRootNode?.().fullscreenElement || document.fullscreenElement;
+      if (!target) return false;
+      // CCM hosts the shell in a ShadowRoot: contains() on an outer intro frame
+      // cannot see it, so follow the composed ancestry through shadow hosts.
+      for (let node = elements.shell; node; node = node.parentNode || node.host)
+        if (node === target) return true;
+      return false;
+    };
 
     const fitFullscreen = () => {
       if (!this.gui.fullscreen || !runtime || !elements.stageWrap) return;
@@ -445,6 +494,7 @@ export const component = {
       if (!enabled) return leaveFullscreen();
       const shell = elements.shell, serial = loadSerial;
       if (!shell || this.gui.fullscreen) return;
+      if (ownsNativeFullscreen()) { fullscreenMode("native"); return; }
       if (native && typeof shell.requestFullscreen === "function") {
         try {
           await shell.requestFullscreen();
@@ -515,6 +565,10 @@ export const component = {
         try {
           if (action === "pause") this.gui.paused ? this.resume() : this.pause();
           if (action === "restart") await this.start(true);
+          if (action === "home") {
+            const onHome = source.onHome ?? this.onHome;
+            if (typeof onHome === "function") { this.pause(); await onHome({ app: this }); }
+          }
           if (action === "sound") {
             this.gui.sound = !this.gui.sound;
             audioSettings.enabled = this.gui.sound;
@@ -691,7 +745,7 @@ export const component = {
         item.title = item.disabled ? availability.reason || tool.disabledHint || tool.hint || tool.label : tool.hint || tool.label;
         item.setAttribute("aria-pressed", String(item.dataset.tool === selected));
       }
-      for (const option of elements.toolPicker.children) {
+      for (const option of elements.toolOptions) {
         const tool = runtime.definition.tools?.find(tool => tool.id === option.value);
         const availability = availabilityByTool.get(tool?.id) || { enabled: false };
         option.disabled = !availability.enabled;
