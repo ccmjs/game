@@ -399,6 +399,55 @@
 .game-status[data-tone="error"] { border-color: #d88d77; color: #edb9a5; }
 .game-status[data-tone="success"] { border-color: #8ebda3; color: #bddbc8; }
 
+/* Clear bright/dim cues stay nonmodal and never hide the instruction text. */
+.game-status.is-guidance {
+  border-color: #edc77e;
+  background: rgba(234, 193, 121, .10);
+  color: #f4ddb3;
+  font-weight: 600;
+  animation: game-guidance-message 2.4s ease-in-out infinite;
+}
+
+.game-tool.is-guided:not(:disabled), .game-tool-picker.is-guided {
+  border-color: #edc77e;
+  outline: 2px solid rgba(237, 199, 126, .55);
+  outline-offset: 2px;
+  animation: game-guidance-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes game-guidance-glow {
+  0%, 100% {
+    border-color: #ffe4a7;
+    outline-color: rgba(255, 221, 157, .95);
+    box-shadow: 0 0 25px rgba(244, 185, 83, .72), inset 0 0 20px rgba(244, 185, 83, .27);
+    filter: brightness(1.22);
+  }
+  50% {
+    border-color: #a58a5e;
+    outline-color: rgba(237, 199, 126, .20);
+    box-shadow: 0 0 4px rgba(237, 185, 92, .09), inset 0 0 5px rgba(237, 185, 92, .02);
+    filter: brightness(.94);
+  }
+}
+
+@keyframes game-guidance-message {
+  0%, 100% {
+    border-color: #ffe4a7;
+    background-color: rgba(244, 191, 100, .21);
+    color: #fff0cf;
+    box-shadow: 0 0 12px rgba(244, 185, 83, .22);
+  }
+  50% {
+    border-color: #a58a5e;
+    background-color: rgba(234, 193, 121, .045);
+    color: #e2d2b6;
+    box-shadow: 0 0 3px rgba(244, 185, 83, .025);
+  }
+}
+
+.game-shell.is-paused .is-guided,
+.game-shell.is-paused .is-guidance { animation-play-state: paused; }
+
 .game-help,
 .game-inspector {
   margin-top: 20px;
@@ -523,6 +572,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .game-shell *, .game-shell *::before, .game-shell *::after { transition: none !important; }
+  .game-shell .is-guided,
+  .game-shell .is-guidance { animation: none !important; box-shadow: 0 0 12px rgba(237, 185, 92, .35); }
 }
 
 .game-tool-picker { display: none; }
@@ -643,6 +694,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.game-shell.is-fullscreen > .game-status.is-guidance { white-space: normal; }
 .game-shell.is-fullscreen .game-dialog { max-width: min(380px, 95%); padding: 14px; }
 .game-shell.is-fullscreen .game-dialog h2 { font-size: 21px; margin-bottom: 5px; }
 .game-shell.is-fullscreen .game-dialog p { margin-bottom: 8px; }

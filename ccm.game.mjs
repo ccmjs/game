@@ -69,7 +69,7 @@ export const component = {
     let runtime, painter, frame = null, controller, observer, audio, audioSettings;
     let lastTime = null, accumulator = 0, lastHud = -1, active = false, ending = false, finishPending = false;
     let manualPaused = false, blurred = false, pageHidden = false, pageFrozen = false, loopReady = false;
-    let elements = {}, source = {}, statusText = "", uiBusy = false, loadSerial = 0;
+    let elements = {}, source = {}, statusText = "", currentGuidance = null, uiBusy = false, loadSerial = 0;
     let sizeObserver, hoverPoint = null, viewportOverflow = null, fitKey = "";
     const pressed = new Set();
     this.gui = { paused: false, sound: false, selected: null, zoom: 1, fullscreen: false, fullscreenMode: null };
@@ -129,7 +129,7 @@ export const component = {
       configureAudio(definition);
       this.gui.selected = null;
       this.gui.zoom = Math.max(1, Math.min(2, definition.view?.zoom || 1));
-      ending = false; finishPending = false; accumulator = 0; lastTime = null; lastHud = -1; statusText = "";
+      ending = false; finishPending = false; accumulator = 0; lastTime = null; lastHud = -1; statusText = ""; currentGuidance = null;
       controller = new AbortController();
       buildInterface(definition, fullscreenShell);
       try {
@@ -421,11 +421,16 @@ export const component = {
     const setStatus = text => {
       if (!text || text === statusText) return;
       statusText = text;
-      if (elements.status) elements.status.textContent = text;
+      if (elements.status) elements.status.textContent = currentGuidance?.text || text;
     };
 
     function showError(error) {
       console.error(error);
+      currentGuidance = null;
+      if (elements.status) {
+        elements.status.classList.toggle("is-guidance", false);
+        delete elements.status.dataset.guidance;
+      }
       setStatus(`Fehler: ${error.message || error}`);
     }
 
@@ -698,6 +703,7 @@ export const component = {
     };
 
     const updatePause = () => {
+      elements.shell?.classList.toggle("is-paused", this.gui.paused);
       const pause = elements.shell?.querySelector('[data-action="pause"]');
       if (pause) { pause.textContent = this.gui.paused ? "Fortsetzen" : "Pause"; pause.setAttribute("aria-pressed", String(this.gui.paused)); }
       const sound = elements.shell?.querySelector('[data-action="sound"]');
@@ -735,15 +741,25 @@ export const component = {
         const value = item.path.split(".").reduce((object, key) => object?.[key], runtime.state);
         item.element.textContent = `${value ?? 0}${item.suffix || ""}`;
       }
-      const selected = runtime.state.globals.tool ?? this.gui.selected;
+      const selected = runtime.state.globals.tool !== undefined ? runtime.state.globals.tool : this.gui.selected;
       elements.toolPicker.value = selected || "";
       const availabilityByTool = new Map((runtime.definition.tools || []).map(tool => [tool.id, toolState(tool)]));
+      currentGuidance = null;
+      if (!runtime.state.finished) for (const plugin of runtime.plugins || []) {
+        const prompt = plugin.guidance?.(runtime);
+        if (typeof prompt?.id === "string" && prompt.id && typeof prompt.text === "string" && prompt.text.trim()) {
+          currentGuidance = prompt;
+          break;
+        }
+      }
+      const guidedTool = availabilityByTool.get(currentGuidance?.tool)?.enabled ? currentGuidance.tool : null;
       for (const item of elements.shell.querySelectorAll("[data-tool]")) {
         const tool = runtime.definition.tools.find(tool => tool.id === item.dataset.tool);
         const availability = availabilityByTool.get(tool.id);
         item.disabled = !availability.enabled;
         item.title = item.disabled ? availability.reason || tool.disabledHint || tool.hint || tool.label : tool.hint || tool.label;
         item.setAttribute("aria-pressed", String(item.dataset.tool === selected));
+        item.classList.toggle("is-guided", item.dataset.tool === guidedTool);
       }
       for (const option of elements.toolOptions) {
         const tool = runtime.definition.tools?.find(tool => tool.id === option.value);
@@ -751,6 +767,13 @@ export const component = {
         option.disabled = !availability.enabled;
         option.title = option.disabled ? availability.reason || tool?.disabledHint || "" : "";
       }
+      elements.toolPicker.classList.toggle("is-guided", !!guidedTool);
+      elements.status.classList.toggle("is-guidance", !!currentGuidance);
+      if (currentGuidance) elements.status.dataset.guidance = currentGuidance.id;
+      else delete elements.status.dataset.guidance;
+      const status = currentGuidance?.text || statusText;
+      // Announce each instruction once, not on every HUD refresh.
+      if (elements.status.textContent !== status) elements.status.textContent = status;
       if (elements.inspector.open) elements.inspectText.textContent = JSON.stringify({
         room: runtime.state.roomId, time: Math.round(runtime.state.time * 10) / 10, globals: runtime.state.globals,
         instances: runtime.state.instances.map(({ id, object, x, y, state, mode, tool, kit }) => ({ id, object, x: Math.round(x), y: Math.round(y), state, mode, tool, kit })),
