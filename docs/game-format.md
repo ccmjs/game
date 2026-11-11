@@ -356,6 +356,8 @@ export function cursor(runtime, { x, y }) {
 
 Der Rückgabewert ist eine gültige CSS-Cursor-Zeichenkette, beispielsweise `"pointer"`, `"copy"` oder `url("data:image/svg+xml,…") 4 4, pointer`. `undefined` lässt den bisherigen Wert bestehen; bei mehreren Plugins gilt der letzte nichtleere String. Ohne passenden Hook gilt `default`. Der Hook wird bei Pointerbewegung und erneut beim Zeichnen nach Spielzustands- oder Werkzeugänderungen ausgewertet. So reagiert ein Cursor auch auf eine unter ihm laufende Figur oder eine eben geänderte Markierung. Bei Pause, Levelende, Touch-Eingaben oder Verlassen des Canvas verwendet die Komponente den normalen Cursor.
 
+Für reine Mausvorschauen kann ein Plugin zusätzlich `hover(runtime, point)` exportieren. Die Komponente ruft ihn vor dem Zeichnen mit logischen Raumkoordinaten auf, bei Pause, Levelende, Touch, Abbruch oder Verlassen des Canvas mit `null`. Vorschaupositionen gehören in einen flüchtigen UI-Speicher (z. B. eine `WeakMap`), nicht in den gespeicherten Spielzustand. Der Zeichenhook kann den Bauplatz bei jeder Darstellung erneut prüfen.
+
 Trefferprüfung und Ausführbarkeit gehören zum Spielmodul und sollten dieselbe Prüfung wie der eigentliche Klick verwenden. Die CCM-Komponente kennt weder die konkreten Werkzeuge noch deren Spielregeln. Der Simulationskern benötigt diesen UI-Hook nicht.
 
 Die allgemeine Runtime importiert weder CCM noch spielspezifische Aktions- oder Darstellungsdateien. Solche Module werden ausschließlich vom jeweiligen Host übergeben. Die Canvas-Zeichenhooks gehören zum optionalen `CanvasRenderer`; der reine Simulationskern benötigt keinen Renderer.

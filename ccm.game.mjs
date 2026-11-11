@@ -517,17 +517,17 @@ export const component = {
     /** Optional game-owned hit testing; the component knows no game-specific tools. */
     const updateCursor = () => {
       if (!elements.canvas) return;
-      let cursor = "default";
+      let cursor = "default", point = null;
       if (hoverPoint && !this.gui.paused && !runtime?.state.finished && painter?.point) {
-        const point = painter.point(hoverPoint.x, hoverPoint.y);
+        const candidate = painter.point(hoverPoint.x, hoverPoint.y);
         const width = runtime.room.width || runtime.definition.width;
         const height = runtime.room.height || runtime.definition.height;
-        if (point.x >= 0 && point.y >= 0 && point.x < width && point.y < height) {
-          for (const plugin of runtime.plugins || []) {
-            const next = plugin.cursor?.(runtime, point);
-            if (typeof next === "string" && next) cursor = next;
-          }
-        }
+        if (candidate.x >= 0 && candidate.y >= 0 && candidate.x < width && candidate.y < height) point = candidate;
+      }
+      for (const plugin of runtime?.plugins || []) {
+        plugin.hover?.(runtime, point);
+        const next = point && plugin.cursor?.(runtime, point);
+        if (typeof next === "string" && next) cursor = next;
       }
       if (elements.canvas.style.cursor !== cursor) elements.canvas.style.cursor = cursor;
     };
@@ -686,6 +686,7 @@ export const component = {
       if (paused) releaseKeys();
       audio?.setPaused(paused);
       updatePause();
+      if (paused) painter?.draw();
       if (changed && runtime) void this.emit(paused ? "pause" : "resume").catch(showError);
       requestFrame();
     };
@@ -733,7 +734,7 @@ export const component = {
     const paint = (force = false) => {
       if (!runtime || !painter) return;
       this.state = runtime.state;
-      painter.draw(); fitFullscreen(); updateCursor();
+      fitFullscreen(); updateCursor(); painter.draw();
       if (!force && runtime.state.time - lastHud < 0.1 && !runtime.state.finished) return;
       lastHud = runtime.state.time;
       elements.roomName.textContent = runtime.room.title || runtime.state.roomId;
